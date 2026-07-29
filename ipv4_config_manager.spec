@@ -17,23 +17,9 @@ a = Analysis(
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],
-    excludes=[
-        # 排除不需要的大模块, 减小体积
-        'unittest',
-        'pydoc',
-        'doctest',
-        'argparse',
-        'xml',
-        'email',
-        'html',
-        'http',
-        'urllib',
-        'ftplib',
-        'imaplib',
-        'nntplib',
-        'smtplib',
-        'telnetlib',
-    ],
+    # 不排除任何标准库模块: inspect/zipfile/pathlib 等启动链
+    # 间接依赖 urllib 等, 强行排除会导致运行时 ModuleNotFoundError
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
