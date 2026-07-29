@@ -204,8 +204,14 @@ class NetshManager:
                 current_section = None
                 continue
 
-            # DNS 服务器段落标记
-            if "dns servers" in low or "dns 服务器" in stripped or "dns服务器" in low:
+            # DNS 服务器段落标记 (中英文, 模糊匹配)
+            # 英文: Statically Configured DNS Servers / DNS Servers configured through DHCP
+            # 中文: 静态配置的 DNS 服务器 / 通过 DHCP 配置的 DNS 服务器 / DNS 服务器
+            if "dns" in low and ("server" in low or "服务器" in stripped):
+                # 同一行冒号后可能直接跟了首个 DNS 地址, 一并提取
+                val = _after_colon(stripped)
+                if val and self._IP_RE.match(val) and val not in cfg.dns:
+                    cfg.dns.append(val)
                 if "dhcp" in low or "通过" in stripped:
                     current_section = "dns_dhcp"
                 else:
