@@ -34,6 +34,7 @@ dist/
 # 运行时生成的数据文件
 profiles.json
 last_backup.json
+netsh_debug.log
 
 # IDE
 .vscode/

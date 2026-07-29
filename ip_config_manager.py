@@ -223,6 +223,18 @@ class App:
             self._safe_msgbox("错误", f"读取网卡失败:\n{e}", "error")
             self._set_status("读取网卡失败")
             return
+        if not names:
+            # 解析为空：提示用户查看诊断日志，把 netsh 原始输出发回以便修复
+            self._safe_msgbox(
+                "未读到网卡",
+                "未能从 netsh 输出中解析出任何网卡。\n\n"
+                "请把程序所在目录下的 netsh_debug.log 文件内容发回，"
+                "我将据此调整解析逻辑。\n"
+                "(该日志记录了 netsh 的原始输出)",
+                "warning",
+            )
+            self._set_status("未读到网卡, 请查看 netsh_debug.log")
+            return
         self.root.after(0, lambda: self._update_adapters(names))
 
     def _update_adapters(self, names: list[str]) -> None:
