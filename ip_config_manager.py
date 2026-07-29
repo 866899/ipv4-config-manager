@@ -7,6 +7,8 @@
   - 保存多个预设方案，一键切换（如 办公 / 家庭 / 现场）
   - 修改前自动备份当前配置，便于一键还原
   - 启动时自检并以管理员权限运行
+
+UI 风格: 现代深色科技风, 青色强调, 左操作区 + 右信息卡布局。
 """
 
 from __future__ import annotations
@@ -24,9 +26,39 @@ from network_utils import IpConfig, NetshManager, is_admin
 
 
 # ---------------------------------------------------------------------------
+# 配色体系 (现代深色科技风)
+# ---------------------------------------------------------------------------
+class Theme:
+    BG = "#1a1d23"              # 主背景
+    BG_ELEVATED = "#252932"     # 卡片/面板背景
+    BG_INPUT = "#1f232b"        # 输入框背景
+    BORDER = "#353a45"          # 描边
+    BORDER_FOCUS = "#3ddbd9"    # 聚焦描边 (青色)
+
+    TEXT = "#e6e8eb"            # 主文字
+    TEXT_DIM = "#9aa0aa"        # 次要文字
+    TEXT_FAINT = "#6b7280"      # 提示文字
+
+    ACCENT = "#3ddbd9"          # 强调色 青
+    ACCENT_DARK = "#2bb5b3"     # 强调色按下
+    SUCCESS = "#4ade80"         # 成功 绿
+    WARNING = "#fbbf24"         # 警告 黄
+    DANGER = "#f87171"          # 危险 红
+    INFO = "#60a5fa"            # 信息 蓝
+
+    FONT_UI = "Microsoft YaHei UI"      # 中文 UI 字体
+    FONT_MONO = "Consolas"              # 等宽字体 (IP/配置)
+    FONT_UI_SIZE = 9
+    FONT_TITLE_SIZE = 11
+
+
+# ---------------------------------------------------------------------------
 # 配置文件路径（与程序同目录）
 # ---------------------------------------------------------------------------
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# 打包成 exe 后, 日志/配置应写到 exe 旁边, 而非临时解压目录
+if getattr(sys, "frozen", False):
+    APP_DIR = os.path.dirname(sys.executable)
 PROFILES_FILE = os.path.join(APP_DIR, "profiles.json")
 BACKUP_FILE = os.path.join(APP_DIR, "last_backup.json")
 
@@ -81,7 +113,6 @@ def ensure_admin() -> None:
         return
     try:
         params = " ".join(f'"{a}"' for a in sys.argv)
-        # SW_SHOWNORMAL = 1
         ctypes.windll.shell32.ShellExecuteW(
             None, "runas", sys.executable, params, None, 1
         )
@@ -94,14 +125,143 @@ def ensure_admin() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 自定义组件
+# ---------------------------------------------------------------------------
+class FlatButton(tk.Frame):
+    """扁平按钮: 主操作填充强调色, 次操作描边, 带 hover 效果。"""
+
+    def __init__(
+        self,
+        master,
+        text: str,
+        command=None,
+        style: str = "secondary",  # primary | secondary | danger
+        width: Optional[int] = None,
+        **kwargs,
+    ):
+        bg, fg, hover_bg, press_bg = self._colors(style)
+        super().__init__(master, bg=bg, highlightthickness=0)
+        self._cmd = command
+        self._bg = bg
+        self._fg = fg
+        self._hover_bg = hover_bg
+        self._press_bg = press_bg
+        self._label = tk.Label(
+            self,
+            text=text,
+            bg=bg,
+            fg=fg,
+            font=(Theme.FONT_UI, Theme.FONT_UI_SIZE, "bold"),
+            padx=14,
+            pady=7,
+            cursor="hand2",
+        )
+        self._label.pack(fill="both", expand=True)
+        if width:
+            self._label.configure(width=width)
+        for w in (self, self._label):
+            w.bind("<Enter>", self._on_enter)
+            w.bind("<Leave>", self._on_leave)
+            w.bind("<Button-1>", self._on_press)
+            w.bind("<ButtonRelease-1>", self._on_release)
+
+    @staticmethod
+    def _colors(style: str):
+        if style == "primary":
+            return (Theme.ACCENT, "#0d1b1a", Theme.ACCENT_DARK, Theme.ACCENT_DARK)
+        if style == "danger":
+            return (Theme.DANGER, "#1a0d0d", "#dc4a4a", "#dc4a4a")
+        # secondary
+        return (Theme.BG_ELEVATED, Theme.TEXT, Theme.BORDER, Theme.BORDER)
+
+    def _on_enter(self, _e):
+        self._label.configure(bg=self._hover_bg)
+        self.configure(bg=self._hover_bg)
+
+    def _on_leave(self, _e):
+        self._label.configure(bg=self._bg)
+        self.configure(bg=self._bg)
+
+    def _on_press(self, _e):
+        self._label.configure(bg=self._press_bg)
+        self.configure(bg=self._press_bg)
+
+    def _on_release(self, _e):
+        self._label.configure(bg=self._hover_bg)
+        self.configure(bg=self._hover_bg)
+        if self._cmd:
+            self._cmd()
+
+
+class Card(tk.Frame):
+    """圆角感卡片容器(实际用描边+背景模拟)。"""
+
+    def __init__(self, master, title: str = "", **kwargs):
+        super().__init__(
+            master,
+            bg=Theme.BG_ELEVATED,
+            highlightbackground=Theme.BORDER,
+            highlightthickness=1,
+            bd=0,
+        )
+        if title:
+            hdr = tk.Frame(self, bg=Theme.BG_ELEVATED)
+            hdr.pack(fill="x", padx=14, pady=(10, 4))
+            tk.Label(
+                hdr,
+                text=title,
+                bg=Theme.BG_ELEVATED,
+                fg=Theme.ACCENT,
+                font=(Theme.FONT_UI, Theme.FONT_TITLE_SIZE, "bold"),
+                anchor="w",
+            ).pack(side="left")
+            # 标题下方分隔线
+            tk.Frame(self, bg=Theme.BORDER, height=1).pack(
+                fill="x", padx=14, pady=(2, 6)
+            )
+
+
+class StatusBar(tk.Frame):
+    """状态栏: 左侧圆点指示 + 文字, 颜色随状态变化。"""
+
+    def __init__(self, master):
+        super().__init__(master, bg=Theme.BG, height=26, highlightthickness=0)
+        self._dot = tk.Label(self, text="●", bg=Theme.BG, fg=Theme.TEXT_DIM,
+                             font=(Theme.FONT_UI, 8))
+        self._dot.pack(side="left", padx=(10, 6))
+        self._label = tk.Label(
+            self,
+            text="就绪",
+            bg=Theme.BG,
+            fg=Theme.TEXT_DIM,
+            font=(Theme.FONT_UI, 8),
+            anchor="w",
+        )
+        self._label.pack(side="left", fill="x", expand=True)
+
+    def set(self, text: str, level: str = "info") -> None:
+        color_map = {
+            "info": Theme.TEXT_DIM,
+            "working": Theme.ACCENT,
+            "success": Theme.SUCCESS,
+            "warning": Theme.WARNING,
+            "error": Theme.DANGER,
+        }
+        c = color_map.get(level, Theme.TEXT_DIM)
+        self._dot.configure(fg=c)
+        self._label.configure(text=text, fg=c)
+
+
+# ---------------------------------------------------------------------------
 # 主窗口
 # ---------------------------------------------------------------------------
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IPv4 配置管理器  By LiaoZiHao")
-        self.root.geometry("640x620")
-        self.root.minsize(560, 580)
+        self.root.geometry("880x600")
+        self.root.minsize(820, 560)
+        self.root.configure(bg=Theme.BG)
 
         self.mgr = NetshManager()
         self.profiles = load_profiles()
@@ -113,107 +273,247 @@ class App:
         self.dns1_var = tk.StringVar()
         self.dns2_var = tk.StringVar()
         self.profile_name_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="就绪")
         self.current_config: Optional[IpConfig] = None
 
+        self._apply_dark_theme()
         self._build_ui()
         self._refresh_adapters()
         self._refresh_profile_dropdown()
 
+    # ----- 主题 -----
+    def _apply_dark_theme(self) -> None:
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure(".", background=Theme.BG, foreground=Theme.TEXT,
+                        font=(Theme.FONT_UI, Theme.FONT_UI_SIZE), borderwidth=0)
+        style.configure("TFrame", background=Theme.BG)
+        style.configure("Card.TFrame", background=Theme.BG_ELEVATED)
+        style.configure("TLabel", background=Theme.BG, foreground=Theme.TEXT)
+        style.configure("Dim.TLabel", background=Theme.BG, foreground=Theme.TEXT_DIM)
+        style.configure("Card.TLabel", background=Theme.BG_ELEVATED,
+                        foreground=Theme.TEXT)
+        style.configure("CardDim.TLabel", background=Theme.BG_ELEVATED,
+                        foreground=Theme.TEXT_DIM)
+        style.configure("CardTitle.TLabel", background=Theme.BG_ELEVATED,
+                        foreground=Theme.ACCENT,
+                        font=(Theme.FONT_UI, Theme.FONT_TITLE_SIZE, "bold"))
+
+        # 输入框
+        style.configure("TEntry", fieldbackground=Theme.BG_INPUT,
+                        foreground=Theme.TEXT, insertcolor=Theme.ACCENT,
+                        bordercolor=Theme.BORDER, lightcolor=Theme.BORDER,
+                        darkcolor=Theme.BORDER, padding=6)
+        style.map("TEntry",
+                  bordercolor=[("focus", Theme.BORDER_FOCUS)],
+                  lightcolor=[("focus", Theme.BORDER_FOCUS)],
+                  darkcolor=[("focus", Theme.BORDER_FOCUS)])
+
+        # Combobox
+        style.configure("TCombobox", fieldbackground=Theme.BG_INPUT,
+                        background=Theme.BG_ELEVATED, foreground=Theme.TEXT,
+                        bordercolor=Theme.BORDER, lightcolor=Theme.BORDER,
+                        darkcolor=Theme.BORDER, padding=6, arrowcolor=Theme.ACCENT)
+        style.map("TCombobox",
+                  bordercolor=[("focus", Theme.BORDER_FOCUS)],
+                  lightcolor=[("focus", Theme.BORDER_FOCUS)],
+                  darkcolor=[("focus", Theme.BORDER_FOCUS)],
+                  fieldbackground=[("readonly", Theme.BG_INPUT)])
+        style.configure("TCombobox.fieldbg", background=Theme.BG_INPUT)
+        # 让下拉列表也用深色 (通过 option_add)
+        self.root.option_add("*TCombobox*Listbox.background", Theme.BG_ELEVATED)
+        self.root.option_add("*TCombobox*Listbox.foreground", Theme.TEXT)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", Theme.ACCENT)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "#0d1b1a")
+
     # ----- UI 构建 -----
     def _build_ui(self) -> None:
-        pad = {"padx": 8, "pady": 4}
+        # 顶部品牌横幅
+        self._build_banner()
 
-        # 网卡选择
-        frm_adapter = ttk.LabelFrame(self.root, text="网卡选择")
-        frm_adapter.pack(fill="x", padx=10, pady=(10, 6))
-        ttk.Label(frm_adapter, text="网卡:").grid(row=0, column=0, **pad, sticky="w")
+        # 主体: 左操作区 + 右信息卡
+        body = tk.Frame(self.root, bg=Theme.BG)
+        body.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        body.columnconfigure(0, weight=3, uniform="col")
+        body.columnconfigure(1, weight=2, uniform="col")
+        body.rowconfigure(0, weight=1)
+
+        # 左侧操作区 (网卡 + 配置 + 操作 + 预设)
+        left = tk.Frame(body, bg=Theme.BG)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.rowconfigure(3, weight=1)
+        self._build_adapter_card(left)
+        self._build_config_card(left)
+        self._build_action_bar(left)
+        self._build_profile_card(left)
+
+        # 右侧信息卡
+        right = tk.Frame(body, bg=Theme.BG)
+        right.grid(row=0, column=1, sticky="nsew")
+        self._build_info_card(right)
+
+        # 底部状态栏
+        self.status_bar = StatusBar(self.root)
+        self.status_bar.pack(fill="x", side="bottom")
+
+    def _build_banner(self) -> None:
+        banner = tk.Frame(self.root, bg=Theme.BG_ELEVATED, height=64,
+                          highlightbackground=Theme.BORDER, highlightthickness=1)
+        banner.pack(fill="x", padx=14, pady=(12, 8))
+        banner.pack_propagate(False)
+
+        # 左: 标题 + 副标题
+        left = tk.Frame(banner, bg=Theme.BG_ELEVATED)
+        left.pack(side="left", padx=16, pady=10)
+        tk.Label(
+            left, text="IPv4 配置管理器", bg=Theme.BG_ELEVATED,
+            fg=Theme.TEXT, font=(Theme.FONT_UI, 15, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            left, text="快速设置 / 还原 IPv4 地址", bg=Theme.BG_ELEVATED,
+            fg=Theme.TEXT_DIM, font=(Theme.FONT_UI, 8),
+        ).pack(anchor="w")
+
+        # 右: 署名徽标
+        right = tk.Frame(banner, bg=Theme.BG_ELEVATED)
+        right.pack(side="right", padx=16, pady=10)
+        badge = tk.Frame(right, bg=Theme.BG_INPUT, highlightbackground=Theme.ACCENT,
+                         highlightthickness=1)
+        badge.pack()
+        tk.Label(
+            badge, text=" By LiaoZiHao ", bg=Theme.BG_INPUT, fg=Theme.ACCENT,
+            font=(Theme.FONT_MONO, 9, "bold"), padx=10, pady=4,
+        ).pack()
+
+    # ----- 网卡卡片 -----
+    def _build_adapter_card(self, parent) -> None:
+        card = Card(parent, title="网卡选择")
+        card.pack(fill="x", pady=(0, 8))
+        inner = tk.Frame(card, bg=Theme.BG_ELEVATED)
+        inner.pack(fill="x", padx=14, pady=(4, 12))
+
+        tk.Label(inner, text="网卡", bg=Theme.BG_ELEVATED, fg=Theme.TEXT_DIM,
+                 font=(Theme.FONT_UI, Theme.FONT_UI_SIZE), width=6).grid(
+            row=0, column=0, sticky="w", pady=4)
         self.adapter_combo = ttk.Combobox(
-            frm_adapter, textvariable=self.adapter_var, state="readonly", width=40
+            inner, textvariable=self.adapter_var, state="readonly"
         )
-        self.adapter_combo.grid(row=0, column=1, **pad, sticky="we")
-        ttk.Button(frm_adapter, text="刷新", command=self._refresh_adapters).grid(
-            row=0, column=2, **pad
-        )
-        ttk.Button(frm_adapter, text="读取当前", command=self._load_current).grid(
-            row=0, column=3, **pad
-        )
-        frm_adapter.columnconfigure(1, weight=1)
+        self.adapter_combo.grid(row=0, column=1, sticky="we", padx=(6, 8), pady=4)
+        FlatButton(inner, text="刷新", command=self._refresh_adapters,
+                   style="secondary").grid(row=0, column=2, padx=2, pady=4)
+        FlatButton(inner, text="读取当前", command=self._load_current,
+                   style="primary").grid(row=0, column=3, padx=2, pady=4)
+        inner.columnconfigure(1, weight=1)
 
-        # IPv4 配置输入
-        frm_cfg = ttk.LabelFrame(self.root, text="IPv4 配置")
-        frm_cfg.pack(fill="x", padx=10, pady=6)
+    # ----- 配置输入卡片 -----
+    def _build_config_card(self, parent) -> None:
+        card = Card(parent, title="IPv4 配置")
+        card.pack(fill="x", pady=(0, 8))
+        inner = tk.Frame(card, bg=Theme.BG_ELEVATED)
+        inner.pack(fill="x", padx=14, pady=(4, 12))
 
         rows = [
-            ("IP 地址:", self.ip_var, "示例: 192.168.1.100"),
-            ("子网掩码:", self.mask_var, "示例: 255.255.255.0"),
-            ("默认网关:", self.gateway_var, "可空, 示例: 192.168.1.1"),
-            ("主用 DNS:", self.dns1_var, "可空, 示例: 8.8.8.8"),
-            ("备用 DNS:", self.dns2_var, "可空, 示例: 8.8.4.4"),
+            ("IP 地址", self.ip_var, "192.168.1.100"),
+            ("子网掩码", self.mask_var, "255.255.255.0"),
+            ("默认网关", self.gateway_var, "192.168.1.1"),
+            ("主用 DNS", self.dns1_var, "8.8.8.8"),
+            ("备用 DNS", self.dns2_var, "8.8.4.4"),
         ]
-        for i, (label, var, hint) in enumerate(rows):
-            ttk.Label(frm_cfg, text=label).grid(row=i, column=0, **pad, sticky="w")
-            entry = ttk.Entry(frm_cfg, textvariable=var, width=30)
-            entry.grid(row=i, column=1, **pad, sticky="we")
-            ttk.Label(frm_cfg, text=hint, foreground="gray").grid(
-                row=i, column=2, **pad, sticky="w"
-            )
-        frm_cfg.columnconfigure(1, weight=1)
+        for i, (label, var, ph) in enumerate(rows):
+            tk.Label(inner, text=label, bg=Theme.BG_ELEVATED, fg=Theme.TEXT_DIM,
+                     font=(Theme.FONT_UI, Theme.FONT_UI_SIZE), width=8).grid(
+                row=i, column=0, sticky="w", pady=3)
+            entry = ttk.Entry(inner, textvariable=var, font=(Theme.FONT_MONO, 10))
+            entry.grid(row=i, column=1, sticky="we", padx=(6, 8), pady=3)
+            tk.Label(inner, text=ph, bg=Theme.BG_ELEVATED, fg=Theme.TEXT_FAINT,
+                     font=(Theme.FONT_MONO, 8)).grid(row=i, column=2, sticky="w", pady=3)
+        inner.columnconfigure(1, weight=1)
 
-        # 操作按钮
-        frm_act = ttk.Frame(self.root)
-        frm_act.pack(fill="x", padx=10, pady=6)
-        ttk.Button(frm_act, text="应用静态 IP", command=self._apply_static).pack(
-            side="left", padx=4
-        )
-        ttk.Button(frm_act, text="还原为 DHCP", command=self._apply_dhcp).pack(
-            side="left", padx=4
-        )
-        ttk.Button(frm_act, text="还原上次备份", command=self._restore_backup).pack(
-            side="left", padx=4
-        )
+    # ----- 操作按钮栏 -----
+    def _build_action_bar(self, parent) -> None:
+        bar = tk.Frame(parent, bg=Theme.BG)
+        bar.pack(fill="x", pady=(0, 8))
+        FlatButton(bar, text="应用静态 IP", command=self._apply_static,
+                   style="primary").pack(side="left", padx=(0, 6))
+        FlatButton(bar, text="还原为 DHCP", command=self._apply_dhcp,
+                   style="secondary").pack(side="left", padx=6)
+        FlatButton(bar, text="还原上次备份", command=self._restore_backup,
+                   style="secondary").pack(side="left", padx=6)
 
-        # 预设方案
-        frm_prof = ttk.LabelFrame(self.root, text="预设方案")
-        frm_prof.pack(fill="x", padx=10, pady=6)
-        ttk.Label(frm_prof, text="方案名:").grid(row=0, column=0, **pad, sticky="w")
-        ttk.Entry(frm_prof, textvariable=self.profile_name_var, width=20).grid(
-            row=0, column=1, **pad, sticky="we"
-        )
-        ttk.Button(frm_prof, text="保存当前为方案", command=self._save_profile).grid(
-            row=0, column=2, **pad
-        )
-        ttk.Label(frm_prof, text="已有方案:").grid(row=1, column=0, **pad, sticky="w")
-        self.profile_combo = ttk.Combobox(
-            frm_prof, state="readonly", width=20
-        )
-        self.profile_combo.grid(row=1, column=1, **pad, sticky="we")
-        ttk.Button(frm_prof, text="载入", command=self._load_profile).grid(
-            row=1, column=2, **pad
-        )
-        ttk.Button(frm_prof, text="应用", command=self._apply_profile).grid(
-            row=1, column=3, **pad
-        )
-        ttk.Button(frm_prof, text="删除", command=self._delete_profile).grid(
-            row=1, column=4, **pad
-        )
-        frm_prof.columnconfigure(1, weight=1)
+    # ----- 预设方案卡片 -----
+    def _build_profile_card(self, parent) -> None:
+        card = Card(parent, title="预设方案")
+        card.pack(fill="both", expand=True, pady=(0, 8))
+        inner = tk.Frame(card, bg=Theme.BG_ELEVATED)
+        inner.pack(fill="both", expand=True, padx=14, pady=(4, 12))
 
-        # 当前状态显示
-        frm_info = ttk.LabelFrame(self.root, text="当前网卡配置")
-        frm_info.pack(fill="both", expand=True, padx=10, pady=6)
-        self.info_text = tk.Text(frm_info, height=8, wrap="word", relief="flat")
-        self.info_text.pack(fill="both", expand=True, padx=6, pady=6)
-        self.info_text.configure(state="disabled")
+        tk.Label(inner, text="方案名", bg=Theme.BG_ELEVATED, fg=Theme.TEXT_DIM,
+                 font=(Theme.FONT_UI, Theme.FONT_UI_SIZE), width=6).grid(
+            row=0, column=0, sticky="w", pady=3)
+        ttk.Entry(inner, textvariable=self.profile_name_var).grid(
+            row=0, column=1, sticky="we", padx=(6, 8), pady=3)
+        FlatButton(inner, text="保存当前", command=self._save_profile,
+                   style="primary").grid(row=0, column=2, padx=2, pady=3)
 
-        # 状态栏
-        ttk.Label(
-            self.root, textvariable=self.status_var, relief="sunken", anchor="w"
-        ).pack(fill="x", side="bottom")
+        tk.Label(inner, text="已有", bg=Theme.BG_ELEVATED, fg=Theme.TEXT_DIM,
+                 font=(Theme.FONT_UI, Theme.FONT_UI_SIZE), width=6).grid(
+            row=1, column=0, sticky="w", pady=3)
+        self.profile_combo = ttk.Combobox(inner, state="readonly")
+        self.profile_combo.grid(row=1, column=1, sticky="we", padx=(6, 8), pady=3)
+        FlatButton(inner, text="载入", command=self._load_profile,
+                   style="secondary").grid(row=1, column=2, padx=2, pady=3)
+        FlatButton(inner, text="应用", command=self._apply_profile,
+                   style="primary").grid(row=1, column=3, padx=2, pady=3)
+        FlatButton(inner, text="删除", command=self._delete_profile,
+                   style="danger").grid(row=1, column=4, padx=2, pady=3)
+        inner.columnconfigure(1, weight=1)
+
+    # ----- 信息卡 -----
+    def _build_info_card(self, parent) -> None:
+        card = Card(parent, title="当前网卡配置")
+        card.pack(fill="both", expand=True)
+        inner = tk.Frame(card, bg=Theme.BG_ELEVATED)
+        inner.pack(fill="both", expand=True, padx=14, pady=(4, 12))
+
+        # 模式徽标
+        badge_row = tk.Frame(inner, bg=Theme.BG_ELEVATED)
+        badge_row.pack(fill="x", pady=(0, 8))
+        tk.Label(badge_row, text="模式", bg=Theme.BG_ELEVATED, fg=Theme.TEXT_DIM,
+                 font=(Theme.FONT_UI, Theme.FONT_UI_SIZE)).pack(side="left")
+        self.mode_badge = tk.Label(
+            badge_row, text=" 未知 ", bg=Theme.BG_INPUT, fg=Theme.TEXT_DIM,
+            font=(Theme.FONT_UI, 8, "bold"), padx=8, pady=2,
+            highlightbackground=Theme.BORDER, highlightthickness=1,
+        )
+        self.mode_badge.pack(side="left", padx=(8, 0))
+
+        # 键值对信息
+        self.info_labels: dict[str, tk.Label] = {}
+        info_rows = [
+            ("adapter", "网卡"),
+            ("ip", "IP 地址"),
+            ("mask", "子网掩码"),
+            ("gateway", "默认网关"),
+            ("dns1", "主用 DNS"),
+            ("dns2", "备用 DNS"),
+        ]
+        for key, label in info_rows:
+            row = tk.Frame(inner, bg=Theme.BG_ELEVATED)
+            row.pack(fill="x", pady=3)
+            tk.Label(row, text=label, bg=Theme.BG_ELEVATED, fg=Theme.TEXT_DIM,
+                     font=(Theme.FONT_UI, Theme.FONT_UI_SIZE), width=8,
+                     anchor="w").pack(side="left")
+            val = tk.Label(row, text="—", bg=Theme.BG_ELEVATED, fg=Theme.TEXT,
+                           font=(Theme.FONT_MONO, 10), anchor="w")
+            val.pack(side="left", fill="x", expand=True)
+            self.info_labels[key] = val
 
     # ----- 网卡 -----
     def _refresh_adapters(self) -> None:
-        self._set_status("正在读取网卡列表...")
+        self._set_status("正在读取网卡列表...", "working")
         threading.Thread(target=self._do_refresh_adapters, daemon=True).start()
 
     def _do_refresh_adapters(self) -> None:
@@ -221,10 +521,9 @@ class App:
             names = self.mgr.list_adapters()
         except Exception as e:  # noqa: BLE001
             self._safe_msgbox("错误", f"读取网卡失败:\n{e}", "error")
-            self._set_status("读取网卡失败")
+            self._set_status("读取网卡失败", "error")
             return
         if not names:
-            # 解析为空：提示用户查看诊断日志，把 netsh 原始输出发回以便修复
             self._safe_msgbox(
                 "未读到网卡",
                 "未能从 netsh 输出中解析出任何网卡。\n\n"
@@ -233,7 +532,7 @@ class App:
                 "(该日志记录了 netsh 的原始输出)",
                 "warning",
             )
-            self._set_status("未读到网卡, 请查看 netsh_debug.log")
+            self._set_status("未读到网卡, 请查看 netsh_debug.log", "warning")
             return
         self.root.after(0, lambda: self._update_adapters(names))
 
@@ -243,14 +542,14 @@ class App:
             if self.adapter_var.get() not in names:
                 self.adapter_var.set(names[0])
             self._load_current()
-        self._set_status(f"共 {len(names)} 个网卡")
+        self._set_status(f"共 {len(names)} 个网卡", "info")
 
     # ----- 当前配置 -----
     def _load_current(self) -> None:
         adapter = self.adapter_var.get()
         if not adapter:
             return
-        self._set_status(f"正在读取 {adapter} 的当前配置...")
+        self._set_status(f"正在读取 {adapter} 的当前配置...", "working")
         threading.Thread(
             target=self._do_load_current, args=(adapter,), daemon=True
         ).start()
@@ -260,11 +559,11 @@ class App:
             cfg = self.mgr.get_config(adapter)
         except Exception as e:  # noqa: BLE001
             self._safe_msgbox("错误", f"读取配置失败:\n{e}", "error")
-            self._set_status("读取配置失败")
+            self._set_status("读取配置失败", "error")
             return
         self.current_config = cfg
         self.root.after(0, lambda: self._fill_from_config(cfg))
-        self._set_status("已读取当前配置")
+        self._set_status("已读取当前配置", "success")
 
     def _fill_from_config(self, cfg: IpConfig) -> None:
         self.ip_var.set(cfg.ip)
@@ -275,20 +574,28 @@ class App:
         self._render_info(cfg)
 
     def _render_info(self, cfg: IpConfig) -> None:
-        mode = "DHCP (自动获取)" if cfg.dhcp_enabled else "静态 IP"
-        dns_text = ", ".join(cfg.dns) if cfg.dns else "无"
-        content = (
-            f"网卡: {cfg.adapter}\n"
-            f"模式: {mode}\n"
-            f"IP 地址: {cfg.ip or '(无)'}\n"
-            f"子网掩码: {cfg.mask or '(无)'}\n"
-            f"默认网关: {cfg.gateway or '(无)'}\n"
-            f"DNS: {dns_text}\n"
-        )
-        self.info_text.configure(state="normal")
-        self.info_text.delete("1.0", "end")
-        self.info_text.insert("1.0", content)
-        self.info_text.configure(state="disabled")
+        # 模式徽标
+        if cfg.dhcp_enabled:
+            self.mode_badge.configure(
+                text=" DHCP (自动获取) ", bg="#0d2818", fg=Theme.SUCCESS,
+                highlightbackground=Theme.SUCCESS,
+            )
+        else:
+            self.mode_badge.configure(
+                text=" 静态 IP ", bg="#0d1f2d", fg=Theme.INFO,
+                highlightbackground=Theme.INFO,
+            )
+        # 键值对
+        vals = {
+            "adapter": cfg.adapter or "—",
+            "ip": cfg.ip or "—",
+            "mask": cfg.mask or "—",
+            "gateway": cfg.gateway or "—",
+            "dns1": cfg.dns[0] if len(cfg.dns) > 0 else "—",
+            "dns2": cfg.dns[1] if len(cfg.dns) > 1 else "—",
+        }
+        for key, label in self.info_labels.items():
+            label.configure(text=vals.get(key, "—"))
 
     # ----- 应用静态 IP -----
     def _apply_static(self) -> None:
@@ -306,7 +613,7 @@ class App:
         ):
             return
         dns = [d for d in (self.dns1_var.get().strip(), self.dns2_var.get().strip()) if d]
-        self._set_status("正在应用静态 IP...")
+        self._set_status("正在应用静态 IP...", "working")
         threading.Thread(
             target=self._do_apply_static,
             args=(adapter, ip, mask, self.gateway_var.get().strip(), dns),
@@ -317,7 +624,6 @@ class App:
         self, adapter: str, ip: str, mask: str, gateway: str, dns: list[str]
     ) -> None:
         try:
-            # 修改前备份当前配置
             try:
                 cur = self.mgr.get_config(adapter)
                 save_backup(cur)
@@ -326,10 +632,10 @@ class App:
             self.mgr.set_static(adapter, ip, mask, gateway, dns)
         except Exception as e:  # noqa: BLE001
             self._safe_msgbox("错误", f"应用失败:\n{e}", "error")
-            self._set_status("应用失败")
+            self._set_status("应用失败", "error")
             return
         self.root.after(0, self._on_applied_success)
-        self._set_status("静态 IP 已应用")
+        self._set_status("静态 IP 已应用", "success")
 
     def _on_applied_success(self) -> None:
         messagebox.showinfo("成功", "静态 IP 已应用")
@@ -345,7 +651,7 @@ class App:
             "确认", f"将把网卡 [{adapter}] 还原为 DHCP(自动获取)?"
         ):
             return
-        self._set_status("正在还原为 DHCP...")
+        self._set_status("正在还原为 DHCP...", "working")
         threading.Thread(
             target=self._do_apply_dhcp, args=(adapter,), daemon=True
         ).start()
@@ -360,12 +666,12 @@ class App:
             self.mgr.set_dhcp(adapter)
         except Exception as e:  # noqa: BLE001
             self._safe_msgbox("错误", f"还原失败:\n{e}", "error")
-            self._set_status("还原失败")
+            self._set_status("还原失败", "error")
             return
         self.root.after(
             0, lambda: (messagebox.showinfo("成功", "已还原为 DHCP"), self._load_current())
         )
-        self._set_status("已还原为 DHCP")
+        self._set_status("已还原为 DHCP", "success")
 
     # ----- 还原上次备份 -----
     def _restore_backup(self) -> None:
@@ -386,7 +692,7 @@ class App:
         )
         if not messagebox.askyesno("还原备份", info):
             return
-        self._set_status("正在还原上次备份...")
+        self._set_status("正在还原上次备份...", "working")
         threading.Thread(
             target=self._do_restore_backup, args=(data,), daemon=True
         ).start()
@@ -406,13 +712,13 @@ class App:
                 )
         except Exception as e:  # noqa: BLE001
             self._safe_msgbox("错误", f"还原失败:\n{e}", "error")
-            self._set_status("还原失败")
+            self._set_status("还原失败", "error")
             return
         self.root.after(
             0,
             lambda: (messagebox.showinfo("成功", "已还原为上次备份"), self._load_current()),
         )
-        self._set_status("已还原为上次备份")
+        self._set_status("已还原为上次备份", "success")
 
     # ----- 预设方案 -----
     def _refresh_profile_dropdown(self) -> None:
@@ -456,7 +762,7 @@ class App:
         self.dns1_var.set(p.get("dns1", ""))
         self.dns2_var.set(p.get("dns2", ""))
         self.profile_name_var.set(name)
-        self._set_status(f"已载入方案 [{name}]")
+        self._set_status(f"已载入方案 [{name}]", "info")
 
     def _apply_profile(self) -> None:
         self._load_profile()
@@ -470,11 +776,11 @@ class App:
             del self.profiles[name]
             save_profiles(self.profiles)
             self._refresh_profile_dropdown()
-            self._set_status(f"已删除方案 [{name}]")
+            self._set_status(f"已删除方案 [{name}]", "info")
 
     # ----- 辅助 -----
-    def _set_status(self, text: str) -> None:
-        self.root.after(0, lambda: self.status_var.set(text))
+    def _set_status(self, text: str, level: str = "info") -> None:
+        self.root.after(0, lambda: self.status_bar.set(text, level))
 
     def _safe_msgbox(self, title: str, msg: str, kind: str = "info") -> None:
         self.root.after(0, lambda: getattr(messagebox, kind)(title, msg))
