@@ -99,7 +99,7 @@ def ensure_admin() -> None:
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("IPv4 配置管理器")
+        self.root.title("IPv4 配置管理器  By LiaoZiHao")
         self.root.geometry("640x620")
         self.root.minsize(560, 580)
 
