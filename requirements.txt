@@ -1,0 +1,5 @@
+# IPv4 配置管理器依赖
+# 仅使用 Python 标准库，无需安装任何第三方包
+# tkinter 随官方 Python 安装包一同提供
+#
+# 运行: python ip_config_manager.py
