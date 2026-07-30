@@ -259,8 +259,8 @@ class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("IPv4 配置管理器  By LiaoZiHao")
-        self.root.geometry("880x600")
-        self.root.minsize(820, 560)
+        self.root.geometry("880x680")
+        self.root.minsize(820, 600)
         self.root.configure(bg=Theme.BG)
 
         self.mgr = NetshManager()
@@ -343,8 +343,7 @@ class App:
 
         # 左侧操作区 (网卡 + 配置 + 操作 + 预设)
         left = tk.Frame(body, bg=Theme.BG)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        left.rowconfigure(3, weight=1)
+        left.grid(row=0, column=0, sticky="n", padx=(0, 8))
         self._build_adapter_card(left)
         self._build_config_card(left)
         self._build_action_bar(left)
@@ -446,9 +445,9 @@ class App:
     # ----- 预设方案卡片 -----
     def _build_profile_card(self, parent) -> None:
         card = Card(parent, title="预设方案")
-        card.pack(fill="both", expand=True, pady=(0, 8))
+        card.pack(fill="x", pady=(0, 8))
         inner = tk.Frame(card, bg=Theme.BG_ELEVATED)
-        inner.pack(fill="both", expand=True, padx=14, pady=(4, 12))
+        inner.pack(fill="x", padx=14, pady=(4, 12))
 
         tk.Label(inner, text="方案名", bg=Theme.BG_ELEVATED, fg=Theme.TEXT_DIM,
                  font=(Theme.FONT_UI, Theme.FONT_UI_SIZE), width=6).grid(
